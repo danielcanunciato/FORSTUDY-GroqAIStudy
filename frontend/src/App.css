@@ -4,7 +4,7 @@ form {
 
 .prompt-container {
     background: rgb(37, 37, 37);
-    padding: 60px;
+    padding: 40px;
     width: 350px;
     border-radius: 15px;
     display: flex;
@@ -22,12 +22,15 @@ form {
 }
 
 .input-group {
-  margin-bottom: 20px;
+    margin-top: 20px;
+    padding: 40px;
+    border-radius: 40px;
+    border : 2px solid white;
+    background-color: rgb(23, 23, 23);
 }
 
 .input-group label {
     display: block;
-    margin-bottom: 8px;
     color: #ffffff;
     font-weight: bold;
 }
@@ -64,5 +67,49 @@ form {
 }
 
 .submit-btn:hover {
-    background: #252525;
+    background: #292929;
+}
+
+.response-box {
+    text-align: left;
+    margin-top: 40px;
+}
+
+.login-btn {
+    margin-top: 20px;
+    width: 75%;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    background: #1a1a1a;
+    color: white;
+    border: 4px inset #ffffff;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+
+.login-btn:hover {
+    background: #3c3c3c;
+}
+
+.extra-links {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.extra-links p {
+    text-decoration: none;
+    cursor: pointer;
+    color: #4facfe;
+    font-size: 14px;
+    transition: 0.1s ease-out;
+    user-select: none;
+}
+
+.extra-links p:hover {
+    font-size: 16px;
+    color: #7ec3ff;
 }
