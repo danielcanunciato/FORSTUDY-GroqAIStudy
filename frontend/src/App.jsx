@@ -1,82 +1,183 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm'
 import './App.css'
 import React from 'react';
 
+/* =========================
+   Memoized Message
+========================= */
+const Message = React.memo(({ prompt, userinfo, formatDate, promptID }) => {
+  return (
+    <div style={{ width: '100%', marginTop: '20px' }}>
+      <div className='response-box'>
+        <h2 style={{ textAlign: 'right', color: 'gray' }}>
+          <b>
+            <span style={{ fontSize: '16px' }}>
+              <b>PROMPT ID:</b> {promptID}
+            </span>{" "}
+            | <b>GENERATED AT:</b> {formatDate(prompt.promptDate)}
+          </b>
+        </h2>
+
+        <h2 style={{ textAlign: 'right', color: 'gold' }}>
+          <b>{userinfo.username}</b>
+        </h2>
+
+        <p style={{ textAlign: 'right' }}>{prompt.prompt}</p>
+
+        <h2 style={{ textAlign: 'left', color: 'cyan' }}>
+          <b>AI</b>
+        </h2>
+
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {prompt.reply}
+        </ReactMarkdown>
+      </div>
+      <hr />
+    </div>
+  );
+});
+
+/* =========================
+   App
+========================= */
 function App() {
   const [changeLogScreen, setChangeLS] = useState(false);
-
   const [loggedIn, setLoggedIn] = useState(false);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  const [userinfo, setUserInfo] = useState({})
-
+  const [userinfo, setUserInfo] = useState({});
   const [prompt, setPrompt] = useState("");
 
-  const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(false);
-
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
   const [responses, setResponses] = useState([]);
 
+  const responsesContainerRef = useRef(null);
+
+  /* =========================
+     Helpers
+  ========================= */
   function formatDate(dateValue) {
-      const date = new Date(dateValue);
+    if (!dateValue) return "—";
 
-      const day = String(date.getDate()).padStart(2, "0");
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const year = date.getFullYear();
+    const date = new Date(dateValue);
+    if (isNaN(date.getTime())) return "—";
 
-      return `${day}/${month}/${year}`;
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+
+    return `${day}/${month}/${year}`;
   }
 
-  async function handleSavePrompts(getPrompt, getReply) {
+  function switchLoginScreen(bool) {
+    setChangeLS(bool);
+    setUsername("");
+    setPassword("");
+    setError("");
+    setSuccess("");
+  }
+
+  /* =========================
+     API
+  ========================= */
+
+  useEffect(()=>{
+    async function auto_login() {
+      // LOGIN AUTOMATICALLY
+      const JWT_USER_TOKEN = localStorage.getItem("USERTOKEN");
+
+      if (!JWT_USER_TOKEN) return;
+
+      try {
+        const res = await fetch("http://localhost:6767/me", {
+          headers : {
+            Authorization : `Bearer ${JWT_USER_TOKEN}`
+          }
+        });
+
+        if (!res.ok) {
+          // INVALID OR EXPIRED
+          localStorage.removeItem("USERTOKEN");
+          return;
+        }
+
+        const user = await res.json();
+
+        setLoggedIn(true);
+        setUserInfo(user);
+
+        await handleLoadPrompts();
+
+      } catch(err) {
+        console.error(err);
+      }
+    }
+
+    auto_login();
+  }, [])
+
+  async function handleLoadPrompts() {
     try {
-      setError("");
-
       const res = await fetch("http://localhost:6767/prompts", {
-        method: "POST",
         headers: {
-          "Content-Type" : "application/json"
-        },
-        body: JSON.stringify({
-          prompt: getPrompt,
-          reply: getReply,
-          userid: userinfo.id
-        })
-      })
+          Authorization : `Bearer ${localStorage.getItem("USERTOKEN")}`
+        }
+      });
 
-    } catch(err) {
-      setError(err);
-      return console.error(err);
+      if (!res.ok) throw new Error("Error while fetching prompts.");
+
+      const data = await res.json();
+      
+      if (Array.isArray(data)) {
+        setResponses(data);
+      } else {
+        setResponses([]);
+      }
+
+    } catch (err) { 
+      console.error(err);
     }
   }
 
-  async function handleLoadPrompts(get_userid) {
+  async function handleLogin(ev) {
+    
+    if (ev) {
+      ev.preventDefault();
+    }
+
     try {
-      fetch(`http://localhost:6767/prompts/${get_userid}`)
-      .then(res=>{
-        if (res.status === 404) {
-          return [];
-        }
+      const res = await fetch("http://localhost:6767/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ username, password })
+      });
 
-        if (!res.ok) {
-          throw new Error("Error while fetching prompts.")
-        }
+      const data = await res.json();
 
-        return res.json();
-      })
-      .then(data=>{
-        setResponses(data);
-      })
-      .catch(err=>console.error(err));
+      if (res.ok) {
+        localStorage.setItem("USERTOKEN", data.token);
+        
+        setLoggedIn(true);
+        setUserInfo(data);
+        setError("");
 
-    } catch(err) {
-      setError(err);
-      return console.error(err);
+        handleLoadPrompts();
+
+      } else {
+        setError(data.error || "Something went wrong.");
+      }
+
+    } catch (err) {
+      console.error(err);
     }
   }
 
@@ -84,74 +185,31 @@ function App() {
     ev.preventDefault();
 
     try {
-      setError("");
-
       const res = await fetch("http://localhost:6767/users", {
         method: "POST",
         headers: {
-          "Content-Type" : "application/json"
+          "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          username: username,
-          password: password,
-        })
-      })
-
-      const data = await res.json();
+        body: JSON.stringify({ username, password })
+      });
 
       if (res.ok) {
-        setChangeLS(false)
-        setSuccess("Account created successfully, log in with the credentials.")
-
+        setChangeLS(false);
+        setError("");
+        setSuccess("Account created successfully.");
         setUsername("");
         setPassword("");
 
       } else {
-        if (res.status === 409) {
-          setError("User with that name already exists.")
-        }
+        setError(data.error || "Something went wrong.");
       }
 
-    } catch(err) {
-      setError(err);
+    } catch (err) {
       console.error(err);
+      setError('Network error. Please try again');
     }
   }
 
-  async function handleLogin(ev) {
-    ev.preventDefault();
-
-    try {
-      const res = await fetch("http://localhost:6767/login", {
-        method: "POST",
-        headers: {
-          "Content-Type" : "application/json"
-        },
-        body: JSON.stringify({
-          username: username,
-          password: password,
-        })
-      })
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setTimeout(()=>{setLoggedIn(true)}, 1000)
-        setUserInfo(data);
-        setError("");
-
-        if (data.id) {
-          handleLoadPrompts(data.id);
-        }
-      } else {
-        setError("Wrong username or password.")
-      }
-
-    } catch(err) {
-      console.error(err);
-    }
-  }
-  
   async function askAI(e) {
     e.preventDefault();
 
@@ -163,206 +221,202 @@ function App() {
     try {
       setLoading(true);
       setError("");
-      setReply("");
+
+      const USERTOKEN=localStorage.getItem("USERTOKEN")
 
       const res = await fetch("http://localhost:6767/ask-gpt", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
+          "Authorization" : `Bearer ${USERTOKEN}`
         },
-        body: JSON.stringify({
-          prompt: prompt
-        })
+        body: JSON.stringify({ prompt })
       });
 
       const data = await res.json();
 
-      if (!res.ok) {
-        throw new Error(data.error || "Request failed.");
-      }
+      if (!res.ok) throw new Error(data.error || "Request failed.");
 
-      setReply(data.reply);
-      const newPrompt = {id:responses.length, reply: data.reply, prompt: prompt};
-      setResponses((prev)=> [...prev, newPrompt])
+      const newPrompt = {
+        prompt_id: data.prompt_id,
+        prompt,
+        reply: data.reply,
+        promptDate: new Date().toISOString()
+      };
 
-      handleSavePrompts(newPrompt.prompt, newPrompt.reply)
+      setResponses(prev => [...prev, newPrompt]);
+      setPrompt("");
 
-    } catch(err) {
+      await handleLoadPrompts();
+
+    } catch (err) {
       setError(err.message);
-
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(()=>{
-    if (loggedIn) {
-      handleLoadPrompts(userinfo.id);
-    }
-  }, [responses])
+  function handleLogout() {
+    localStorage.removeItem("USERTOKEN");
+    setLoggedIn(false);
+    setUserInfo({});
+    setResponses([]);
+    setUsername("");
+    setPassword("");
+    setSuccess("Logged out successfully.");
+  }
+
+  /* =========================
+     Auto Scroll
+  ========================= */
+  useEffect(() => {
+    const container = responsesContainerRef.current;
+
+    if (!container) return;
+
+    requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+  }, [responses]);
+
+  const visibleResponses = responses.slice(-30);
 
   return (
     <>
       <h1>GROQ API TEST (OPENAI MODEL)</h1>
+      <p>Prompts older than 2 months are automatically removed from the database.</p>
 
-      {
-        loggedIn ? (
-            <div>
-              <form className="input-group" onSubmit={askAI}>
-                <p style={{marginBottom: "20px"}}>Logged in as: <b>{userinfo.username}</b></p>
+      <div>
+        {loggedIn ? (
+          <div>
 
-                <input
-                    id="input-prompt"
-                    type="text"
-                    placeholder="Type out your prompt"
-                    value={prompt}
-                    onChange={(e) => {
-                        setPrompt(e.target.value); 
-                      }
-                    }
-                />
+            <form className="input-group" onSubmit={askAI}>
+              <p style={{ marginBottom: "20px" }}>
+                Logged in as: <b>{userinfo.username}</b>
+              </p>
 
-                <button
-                    className="submit-btn"
-                    type="submit"
-                    disabled={loading}
-                >
-                    {loading ? "Loading..." : "Submit Prompt"}
-                </button>
+              <textarea
+                id="input-prompt"
+                placeholder="Type out your prompt"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                rows={4}
+                style={{ resize: 'none' }}
+              />
+
+              <button
+                className="submit-btn"
+                type="submit"
+                disabled={loading}
+              >
+                {loading ? "Loading..." : "Submit Prompt"}
+              </button>
+
+              {error && (
+                <p className="error-message" style={{ color: 'red', marginTop: '20px' }}>
+                  {error}
+                </p>
+              )}
             </form>
 
-            {error && (
-                <p className="error-message">
-                    {error}
-                </p>
-            )}
+            <button onClick={handleLogout} className="logout-btn">
+              Logout from <b>{userinfo.username}</b>
+            </button>
 
-            {(responses) && (
-                responses.map((prompt, index)=>(
-                  <div style={{width: '100%', marginTop: '20px'}}  key={`PROMPT::${prompt.prompt}::INDEX::${index}`}>
-                    <div className='response-box'>
-                        <h2 style={{textAlign: 'right', color: 'gray'}}><b><span style={{color: 'gray', fontSize: '16px'}}><b>PROMPT ID:</b> {prompt.prompt_id}</span> | <b>GENERATED AT:</b> {formatDate(prompt.promptDate)}</b></h2>
+            <div
+              ref={responsesContainerRef}
+              style={{
+                maxHeight: "500px",
+                overflowY: "auto",
+                border: "2px solid gray",
+                padding: "20px",
+                marginTop: "20px",
+                marginBottom: "20px",
+                width: '90vw'
+              }}
+            >
+              {
+                responses.length > 0 ? (
+                  visibleResponses.map((prompt, index) => (
+                    <Message
+                      key={prompt.prompt_id || index}
+                      prompt={prompt}
+                      userinfo={userinfo}
+                      formatDate={formatDate}
+                      promptID={prompt.prompt_id ?? "-"}
+                    />
+                  ))
+                ) : (
+                  <p>No history of prompts.</p>
+                )
+              }
+            </div>
 
-                        <h2 style={{textAlign: 'right', color: 'gold'}}><b><span style={{color: 'gray', fontSize: '16px'}}><b>ID:</b> {prompt.userID}</span> USER PROMPT</b></h2>
-                        <p style={{textAlign: 'right'}}>
-                          {prompt.prompt}
-                        </p>
-
-                        <h2 style={{textAlign: 'left', color: 'cyan'}}><b>AI</b></h2>
-                        <ReactMarkdown>
-                          {prompt.reply}
-                        </ReactMarkdown>
-                    </div>
-                    <hr />
-                  </div>
-                ))
-            )}
           </div>
         ) : (
           changeLogScreen === false ? (
-            <div className='prompt-container' style={{marginTop: '40px', filter: 'drop-shadow(0 0 10px gray)'}}>
+            <div className='prompt-container' style={{ marginTop: '40px', filter: 'drop-shadow(0 0 10px gray)' }}>
               <h1>LOGIN</h1>
-              <p>You must be logged in to run the prompts.</p>
 
-                {success && (
-                    <p className="error-message" style={{fontSize: '16px', color: 'green'}}>
-                        {success}
-                    </p>
-                )}
+              {success && (
+                <p className="error-message" style={{ color: 'lime'}}>
+                  {success}
+                </p>
+              )}
 
                {error && (
-                    <p className="error-message" style={{fontSize: '16px', color: 'red'}}>
-                        {error}
-                    </p>
-                )}
+                <p className="error-message" style={{ color: 'red'}}>
+                  {error}
+                </p>
+              )}
 
               <form className='input-group' onSubmit={handleLogin}>
-                  <div>
-                    <label>USERNAME</label>
-                    <p style={{fontSize: '12px'}}>username cannot be over 20 characters long</p>
-                    <input 
-                      placeholder='Username' 
-                      type="text" 
-                      maxLength={20} 
-                      value={username}
-                      onChange={(e)=>setUsername(e.target.value)}
-                      required
-                    />
-                  </div>
+                <label>USERNAME</label>
+                <p style={{fontSize: '12px'}}>username cannot be over 20 characters long</p>
+                <input value={username} maxLength={20} onChange={(e) => setUsername(e.target.value)} />
 
-                  <hr />
-
-                  <div>
-                    <label>PASSWORD</label>
-                    <p style={{fontSize: '12px'}}>password cannot be over 12 characters long</p>
-                    <input
-                      placeholder='Password'
-                      type="password" 
-                      maxLength={12}
-                      value={password}
-                      onChange={(e)=>setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  <button type="submit" className='login-btn'>Log In</button>
-
-                  <div className="extra-links"> <p onClick={()=>{setChangeLS(true); setUsername(""); setPassword("")}}>Create Account</p> </div>
-
+                <label style={{marginTop: '20px'}}>PASSWORD</label>
+                <p style={{fontSize: '12px'}}>password must be at least 6 characters long</p>
+                <input type="password" maxLength={12} value={password} onChange={(e) => setPassword(e.target.value)} />
+                <button className='login-btn'>Log In</button>
               </form>
+
+              <div className="extra-links">
+                <p onClick={() => {switchLoginScreen(true)}}>Create Account</p>
+              </div>
             </div>
+            
           ) : (
-            <div className='prompt-container' style={{marginTop: '40px', filter: 'drop-shadow(0 0 10px gray)'}}>
-              <h1 style={{lineHeight: '1'}}>REGISTER ACCOUNT</h1>
-              <p>You must be logged in to run the prompts.</p>
+
+            <div className='prompt-container' style={{ marginTop: '40px', filter: 'drop-shadow(0 0 10px gray)' }}>
+              <h1>REGISTER ACCOUNT</h1>
 
               {error && (
-                <p className="error-message" style={{fontSize: '16px', color: 'red'}}>
-                      {error}
-                  </p>
+                <p className="error-message" style={{ color: 'red'}}>
+                  {error}
+                </p>
               )}
 
               <form className='input-group' onSubmit={handleRegister}>
-                  <div>
-                    <label>USERNAME</label>
-                    <p style={{fontSize: '12px'}}>username cannot be over 20 characters long</p>
-                    <input 
-                      placeholder='Username' 
-                      type="text" 
-                      maxLength={20} 
-                      value={username}
-                      onChange={(e)=>setUsername(e.target.value)}
-                      required
-                    />
-                  </div>
+                <label>USERNAME</label>
+                <p style={{fontSize: '12px'}}>username cannot be over 20 characters long</p>
+                <input value={username} maxLength={20} onChange={(e) => setUsername(e.target.value)} />
 
-                  <hr />
-
-                  <div>
-                    <label>PASSWORD</label>
-                    <p style={{fontSize: '12px'}}>password cannot be over 12 characters long</p>
-                    <input
-                      placeholder='Password'
-                      type="password" 
-                      maxLength={12}
-                      value={password}
-                      onChange={(e)=>setPassword(e.target.value)}
-                      required
-                    />
-                  </div>
-
-                  <button type="submit" className='login-btn'>Create Account</button>
-
-                  <div className="extra-links"> <p onClick={()=>{setChangeLS(false); setUsername(""); setPassword("")}}>Already have account?</p> </div>
-
+                <label style={{marginTop: '20px'}}>PASSWORD</label>
+                <p style={{fontSize: '12px'}}>password must be at least 6 characters long</p>
+                <input type="password" maxLength={12} value={password} onChange={(e) => setPassword(e.target.value)} />
+                <button className='login-btn'>Create Account</button>
               </form>
+
+              <div className="extra-links">
+                <p onClick={() => {switchLoginScreen(false)}}>Already have account?</p>
+              </div>
             </div>
           )
-        )
-      }
-      
-  </>
-  )
+        )}
+      </div>
+    </>
+  );
 }
 
-export default App
+export default App;
